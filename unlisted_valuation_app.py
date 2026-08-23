@@ -91,10 +91,29 @@ with st.sidebar:
                     {"total_assets": 0, "total_liabilities": 0, "inc1_corp": 0, "inc1_add": 0, "inc1_sub": 0, "inc2_corp": 0, "inc2_add": 0, "inc2_sub": 0, "inc3_corp": 0, "inc3_add": 0, "inc3_sub": 0}
                     """
                     
-                    response = client.models.generate_content(
-                        model='gemini-1.5-flash',
-                        contents=[myfile, prompt]
-                    )
+                    # 여러 모델을 순차적으로 시도 (구글 서버 업데이트 대응)
+                    models_to_try = [
+                        'gemini-1.5-flash-latest',
+                        'gemini-1.5-pro-latest',
+                        'gemini-2.0-flash',
+                        'gemini-2.5-flash'
+                    ]
+                    
+                    response = None
+                    last_error = None
+                    for m_name in models_to_try:
+                        try:
+                            response = client.models.generate_content(
+                                model=m_name,
+                                contents=[myfile, prompt]
+                            )
+                            break # 성공하면 루프 탈출
+                        except Exception as e:
+                            last_error = e
+                            continue
+                            
+                    if not response:
+                        raise last_error
                     
                     # 응답 파싱
                     result_text = response.text.replace("```json", "").replace("```", "").strip()
