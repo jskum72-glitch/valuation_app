@@ -91,12 +91,10 @@ with st.sidebar:
                     {"total_assets": 0, "total_liabilities": 0, "inc1_corp": 0, "inc1_add": 0, "inc1_sub": 0, "inc2_corp": 0, "inc2_add": 0, "inc2_sub": 0, "inc3_corp": 0, "inc3_add": 0, "inc3_sub": 0}
                     """
                     
-                    # 여러 모델을 순차적으로 시도 (구글 서버 업데이트 대응)
+                    # 구글의 최신 모델 요구사항에 맞춤
                     models_to_try = [
-                        'gemini-1.5-flash-latest',
-                        'gemini-1.5-pro-latest',
-                        'gemini-2.0-flash',
-                        'gemini-2.5-flash'
+                        'gemini-3.6-flash',
+                        'gemini-3.6-pro'
                     ]
                     
                     response = None
