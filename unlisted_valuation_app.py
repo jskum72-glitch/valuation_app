@@ -47,26 +47,30 @@ with st.sidebar:
     else:
         api_key = st.text_input("Google Gemini API 키 입력", type="password", help="AI 기능을 사용하려면 API 키가 필요합니다.")
         
-    uploaded_file = st.file_uploader("재무자료 업로드 (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
+    uploaded_files = st.file_uploader("관련 자료 모두 업로드 (PDF, 이미지 등 다중 선택 가능)", type=["pdf", "jpg", "jpeg", "png", "docx"], accept_multiple_files=True)
     
-    if st.button("🚀 AI로 재무정보 자동 추출하기"):
+    if st.button("🚀 AI로 종합정보 자동 추출하기"):
         if not api_key:
             st.error("API 키를 입력해주세요.")
-        elif not uploaded_file:
-            st.error("파일을 업로드해주세요.")
+        elif not uploaded_files:
+            st.error("파일을 1개 이상 업로드해주세요.")
         else:
             with st.spinner("AI가 문서를 읽고 숫자를 추출 중입니다... (약 10~20초 소요)"):
                 try:
                     client = genai.Client(api_key=api_key)
                     
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp:
-                        tmp.write(uploaded_file.getvalue())
-                        tmp_path = tmp.name
-
-                    myfile = client.files.upload(file=tmp_path)
+                    uploaded_genai_files = []
+                    for uf in uploaded_files:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uf.name.split('.')[-1]}") as tmp:
+                            tmp.write(uf.getvalue())
+                            tmp_path = tmp.name
+                        
+                        gfile = client.files.upload(file=tmp_path)
+                        uploaded_genai_files.append(gfile)
+                        os.remove(tmp_path)
                     
                     prompt = """
-                    업로드된 재무제표(대차대조표, 손익계산서 등) 및 세무조정계산서에서 아래의 항목들을 추출해주세요. 
+                    업로드된 모든 자료(재무제표, 세무조정계산서, 부속서류 등)를 종합적으로 분석하여 아래의 항목들을 추출해주세요. 
                     단위는 모두 '원' 단위로 변환해서 출력하세요. (예: 1백만원 -> 1000000). 
                     없거나 모호한 항목은 0으로 처리하세요.
 
@@ -99,9 +103,10 @@ with st.sidebar:
                     last_error = None
                     for m_name in models_to_try:
                         try:
+                            contents = uploaded_genai_files + [prompt]
                             response = client.models.generate_content(
                                 model=m_name,
-                                contents=[myfile, prompt]
+                                contents=contents
                             )
                             break 
                         except Exception as e:
@@ -118,10 +123,10 @@ with st.sidebar:
                         if key in extracted:
                             st.session_state.extracted_data[key] = int(extracted[key])
                             
-                    st.success("데이터 추출 완료! 각 탭에 자동 반영되었습니다.")
+                    st.success(f"{len(uploaded_files)}개의 자료에서 데이터 추출 완료! 각 탭에 자동 반영되었습니다.")
                     
-                    client.files.delete(name=myfile.name)
-                    os.remove(tmp_path)
+                    for gfile in uploaded_genai_files:
+                        client.files.delete(name=gfile.name)
                     
                 except Exception as e:
                     st.error(f"오류가 발생했습니다: {e}")
