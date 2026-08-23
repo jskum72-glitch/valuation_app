@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import google.generativeai as genai
+from google import genai
 import json
 import os
 import tempfile
@@ -44,15 +44,16 @@ with st.sidebar:
         else:
             with st.spinner("AI가 문서를 읽고 숫자를 추출 중입니다... (약 10~20초 소요)"):
                 try:
-                    genai.configure(api_key=api_key)
+                    # 새로운 google-genai SDK 클라이언트 초기화
+                    client = genai.Client(api_key=api_key)
                     
-                    # 임시 파일로 저장 (Gemini API 업로드를 위함)
+                    # 임시 파일로 저장 (업로드를 위함)
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp:
                         tmp.write(uploaded_file.getvalue())
                         tmp_path = tmp.name
 
                     # Gemini에 파일 업로드
-                    myfile = genai.upload_file(tmp_path)
+                    myfile = client.files.upload(file=tmp_path)
                     
                     # 프롬프트 작성 (강력한 추출 지시)
                     prompt = """
@@ -73,12 +74,14 @@ with st.sidebar:
                     10. inc3_add: 3년전 세무조정 가산액
                     11. inc3_sub: 3년전 세무조정 차감액
 
-                    반드시 다음 JSON 형태만 출력하세요 (마크다운 ```json 안 붙여도 됨).
+                    # 반드시 다음 JSON 형태만 출력하세요 (마크다운 ```json 안 붙여도 됨).
                     {"total_assets": 0, "total_liabilities": 0, "inc1_corp": 0, "inc1_add": 0, "inc1_sub": 0, "inc2_corp": 0, "inc2_add": 0, "inc2_sub": 0, "inc3_corp": 0, "inc3_add": 0, "inc3_sub": 0}
                     """
                     
-                    model = genai.GenerativeModel("gemini-1.5-pro")
-                    response = model.generate_content([myfile, prompt])
+                    response = client.models.generate_content(
+                        model='gemini-1.5-flash',
+                        contents=[myfile, prompt]
+                    )
                     
                     # 응답 파싱
                     result_text = response.text.replace("```json", "").replace("```", "").strip()
@@ -92,7 +95,7 @@ with st.sidebar:
                     st.success("데이터 추출 완료! 우측 입력칸에 자동 반영되었습니다.")
                     
                     # 정리
-                    genai.delete_file(myfile.name)
+                    client.files.delete(name=myfile.name)
                     os.remove(tmp_path)
                     
                 except Exception as e:
