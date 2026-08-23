@@ -33,7 +33,20 @@ if "extracted_data" not in st.session_state:
 # --- 사이드바: AI 업로드 기능 ---
 with st.sidebar:
     st.header("📄 AI 재무자료 자동 추출")
-    api_key = st.text_input("Google Gemini API 키 입력", type="password", help="AI 기능을 사용하려면 API 키가 필요합니다.")
+    
+    # Secrets에서 API 키를 먼저 찾음
+    secret_api_key = ""
+    try:
+        secret_api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        pass
+
+    if secret_api_key:
+        api_key = secret_api_key
+        st.success("✅ 시스템 API 키가 연동되어 있습니다.")
+    else:
+        api_key = st.text_input("Google Gemini API 키 입력", type="password", help="AI 기능을 사용하려면 API 키가 필요합니다.")
+        
     uploaded_file = st.file_uploader("재무자료 업로드 (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
     
     if st.button("🚀 AI로 재무정보 자동 추출하기"):
