@@ -6,35 +6,35 @@ import json
 import os
 import tempfile
 
-st.set_page_config(page_title="AI 비상장주식 1주당 평가액 산출", layout="wide")
+st.set_page_config(page_title="AI 기업가치평가 종합 플랫폼", layout="wide")
 
-st.title("🤖 AI 비상장주식 1주당 평가액 산출 플랫폼")
-st.markdown("""
-재무제표, 세무조정계산서 등 **재무자료(PDF 또는 이미지)**를 업로드하면 AI가 자동으로 숫자를 추출하여 1주당 평가액을 산출합니다.
-(수기 입력도 가능합니다.)
-""")
+st.title("🤖 AI 비상장주식 & 기업가치평가 종합 플랫폼 (2026.08 세법반영)")
+st.markdown("재무자료 업로드를 통해 비상장주식 평가, 영업권, FCF/EVA, 과점주주 취득세 산출 등을 원스톱으로 처리합니다.")
 
 # --- AI 추출을 위한 Session State 초기화 ---
-if "extracted_data" not in st.session_state:
-    st.session_state.extracted_data = {
-        "total_assets": 950000000,
-        "total_liabilities": 420000000,
-        "inc1_corp": 74185899,
-        "inc1_add": 0,
-        "inc1_sub": 7615459,
-        "inc2_corp": 175500704,
-        "inc2_add": 0,
-        "inc2_sub": 19305077,
-        "inc3_corp": 127790231,
-        "inc3_add": 0,
-        "inc3_sub": 15462618
-    }
+def init_state(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+init_state("extracted_data", {
+    "total_assets": 1000000000,
+    "total_liabilities": 400000000,
+    "real_estate_assets": 0,
+    "stock_assets": 0,
+    "inc1_corp": 100000000, "inc1_add": 0, "inc1_sub": 0,
+    "inc2_corp": 80000000,  "inc2_add": 0, "inc2_sub": 0,
+    "inc3_corp": 50000000,  "inc3_add": 0, "inc3_sub": 0,
+    "op_profit": 50000000,
+    "depreciation": 10000000,
+    "capex": 5000000,
+    "nwc_change": 2000000
+})
+init_state("goodwill_value", 0)
 
 # --- 사이드바: AI 업로드 기능 ---
 with st.sidebar:
-    st.header("📄 AI 재무자료 자동 추출")
+    st.header("📄 AI 재무자료 종합 추출")
     
-    # Secrets에서 API 키를 먼저 찾음
     secret_api_key = ""
     try:
         secret_api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -57,45 +57,43 @@ with st.sidebar:
         else:
             with st.spinner("AI가 문서를 읽고 숫자를 추출 중입니다... (약 10~20초 소요)"):
                 try:
-                    # 새로운 google-genai SDK 클라이언트 초기화
                     client = genai.Client(api_key=api_key)
                     
-                    # 임시 파일로 저장 (업로드를 위함)
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp:
                         tmp.write(uploaded_file.getvalue())
                         tmp_path = tmp.name
 
-                    # Gemini에 파일 업로드
                     myfile = client.files.upload(file=tmp_path)
                     
-                    # 프롬프트 작성 (강력한 추출 지시)
                     prompt = """
-                    당신은 전문 회계사 및 세무사입니다. 업로드된 문서는 기업의 재무제표(재무상태표, 손익계산서 등) 또는 세무조정계산서입니다.
-                    문서를 꼼꼼히 분석하여 다음 항목들의 금액(원 단위)을 찾아내어 정확히 JSON 형식으로만 출력해주세요. 
-                    찾을 수 없는 값은 0으로 처리하세요.
-                    
-                    [추출 대상 항목]
-                    1. total_assets: 자산총계
-                    2. total_liabilities: 부채총계
-                    3. inc1_corp: 직전 1년전(최근) 사업연도 소득금액 (또는 당기순이익)
-                    4. inc1_add: 직전 1년전 세무조정 가산액 (익금산입 등, 없으면 0)
-                    5. inc1_sub: 직전 1년전 세무조정 차감액 (손금산입 등, 없으면 0)
-                    6. inc2_corp: 2년전 사업연도 소득금액
-                    7. inc2_add: 2년전 세무조정 가산액
-                    8. inc2_sub: 2년전 세무조정 차감액
-                    9. inc3_corp: 3년전 사업연도 소득금액
-                    10. inc3_add: 3년전 세무조정 가산액
-                    11. inc3_sub: 3년전 세무조정 차감액
+                    업로드된 재무제표(대차대조표, 손익계산서 등) 및 세무조정계산서에서 아래의 항목들을 추출해주세요. 
+                    단위는 모두 '원' 단위로 변환해서 출력하세요. (예: 1백만원 -> 1000000). 
+                    없거나 모호한 항목은 0으로 처리하세요.
+
+                    추출 항목:
+                    1. total_assets: 총자산
+                    2. total_liabilities: 총부채
+                    3. real_estate_assets: 부동산(토지,건물 등) 자산 가액
+                    4. stock_assets: 타법인 주식 자산 가액
+                    5. inc1_corp: 직전 1년(가장 최근) 당기순이익 (또는 각사업연도소득금액)
+                    6. inc1_add: 직전 1년 세무조정 가산액
+                    7. inc1_sub: 직전 1년 세무조정 차감액
+                    8. inc2_corp: 2년전 당기순이익
+                    9. inc2_add: 2년전 세무조정 가산액
+                    10. inc2_sub: 2년전 세무조정 차감액
+                    11. inc3_corp: 3년전 당기순이익
+                    12. inc3_add: 3년전 세무조정 가산액
+                    13. inc3_sub: 3년전 세무조정 차감액
+                    14. op_profit: 직전 1년 영업이익
+                    15. depreciation: 감가상각비
+                    16. capex: 자본적 지출(유형자산 취득액 등)
+                    17. nwc_change: 순운전자본 증감액
 
                     # 반드시 다음 JSON 형태만 출력하세요 (마크다운 ```json 안 붙여도 됨).
-                    {"total_assets": 0, "total_liabilities": 0, "inc1_corp": 0, "inc1_add": 0, "inc1_sub": 0, "inc2_corp": 0, "inc2_add": 0, "inc2_sub": 0, "inc3_corp": 0, "inc3_add": 0, "inc3_sub": 0}
+                    {"total_assets": 0, "total_liabilities": 0, "real_estate_assets": 0, "stock_assets": 0, "inc1_corp": 0, "inc1_add": 0, "inc1_sub": 0, "inc2_corp": 0, "inc2_add": 0, "inc2_sub": 0, "inc3_corp": 0, "inc3_add": 0, "inc3_sub": 0, "op_profit": 0, "depreciation": 0, "capex": 0, "nwc_change": 0}
                     """
                     
-                    # 구글의 최신 모델 요구사항에 맞춤
-                    models_to_try = [
-                        'gemini-3.6-flash',
-                        'gemini-3.6-pro'
-                    ]
+                    models_to_try = ['gemini-3.6-flash', 'gemini-3.6-pro']
                     
                     response = None
                     last_error = None
@@ -105,7 +103,7 @@ with st.sidebar:
                                 model=m_name,
                                 contents=[myfile, prompt]
                             )
-                            break # 성공하면 루프 탈출
+                            break 
                         except Exception as e:
                             last_error = e
                             continue
@@ -113,122 +111,206 @@ with st.sidebar:
                     if not response:
                         raise last_error
                     
-                    # 응답 파싱
                     result_text = response.text.replace("```json", "").replace("```", "").strip()
                     extracted = json.loads(result_text)
                     
-                    # Session state 업데이트
                     for key in st.session_state.extracted_data.keys():
                         if key in extracted:
                             st.session_state.extracted_data[key] = int(extracted[key])
                             
-                    st.success("데이터 추출 완료! 우측 입력칸에 자동 반영되었습니다.")
+                    st.success("데이터 추출 완료! 각 탭에 자동 반영되었습니다.")
                     
-                    # 정리
                     client.files.delete(name=myfile.name)
                     os.remove(tmp_path)
                     
                 except Exception as e:
                     st.error(f"오류가 발생했습니다: {e}")
 
-# --- 레이아웃: 2단 구성 ---
-col_input, col_result = st.columns([1, 1])
+# --- 탭 구성 ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "1. 비상장주식 평가 (상증세법)", 
+    "2. 영업권 평가", 
+    "3. FCF/EVA 기업가치평가", 
+    "4. 과점주주 취득세 산출", 
+    "5. 주주이동 명세서"
+])
 
-with col_input:
-    st.header("📝 1. 평가 기본정보 및 재무정보 입력")
+ed = st.session_state.extracted_data
+
+with tab1:
+    st.header("비상장주식 1주당 평가액 산출 (2026.08 세법 적용)")
+    st.info("💡 2026년 개정 반영: 부동산 또는 주식 비중이 80% 이상인 경우, 순자산가치의 100%를 하한선으로 적용합니다.")
     
-    with st.expander("기본 정보", expanded=True):
-        eval_date = st.date_input("평가기준일", value=datetime(2026, 8, 31))
-        face_value = st.number_input("1주당 액면가액 (원)", value=5000, step=100)
-        total_shares = st.number_input("발행주식총수 (주)", min_value=1, value=40000, step=1000)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("평가 기본정보")
+        eval_date = st.date_input("평가기준일", value=datetime.today())
+        face_value = st.number_input("1주당 액면가액", value=5000, step=100)
+        total_shares = st.number_input("발행주식총수", value=40000, step=1000)
         
-        real_estate_flag = st.radio("부동산과다보유법인 여부 (자산 중 부동산 50% 이상)", ["아니오 (N) - 3:2 비율 적용", "예 (Y) - 2:3 비율 적용"])
-        asset_only_flag = st.checkbox("순자산가치로만 평가 (설립 3년 미만, 휴폐업, 계속결손법인 등)", value=False)
+    with col2:
+        st.subheader("재무 상태 입력 (AI 연동)")
+        total_assets = st.number_input("총자산", value=ed["total_assets"], step=1000000)
+        total_liab = st.number_input("총부채", value=ed["total_liabilities"], step=1000000)
+        real_estate = st.number_input("부동산 자산", value=ed["real_estate_assets"], step=1000000)
+        stock_asset = st.number_input("주식 자산", value=ed["stock_assets"], step=1000000)
         
-    with st.expander("순자산 가치 산정 자료", expanded=True):
-        st.info("평가기준일 현재의 자산 및 부채를 입력합니다.")
-        total_assets = st.number_input("자산총계 (원)", value=st.session_state.extracted_data["total_assets"], step=10000000, format="%d")
-        total_liabilities = st.number_input("부채총계 (원)", value=st.session_state.extracted_data["total_liabilities"], step=10000000, format="%d")
-
-    with st.expander("최근 3년간 손익 자료 (순손익가치 산정용)", expanded=True):
-        st.info("평가기준일 이전 1년, 2년, 3년의 법인세법상 각 사업연도 소득금액 및 세무조정 사항을 입력합니다.")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("**이전 1년 (최근)**")
-            inc1_corp = st.number_input("소득금액 (1년전)", value=st.session_state.extracted_data["inc1_corp"], step=1000000)
-            inc1_add = st.number_input("세무 가산액 (1년전)", value=st.session_state.extracted_data["inc1_add"], step=1000000)
-            inc1_sub = st.number_input("세무 차감액 (1년전)", value=st.session_state.extracted_data["inc1_sub"], step=1000000)
-            inc1_net = inc1_corp + inc1_add - inc1_sub
-            st.caption(f"순손익액: {inc1_net:,.0f} 원")
-
-        with col2:
-            st.markdown("**이전 2년**")
-            inc2_corp = st.number_input("소득금액 (2년전)", value=st.session_state.extracted_data["inc2_corp"], step=1000000)
-            inc2_add = st.number_input("세무 가산액 (2년전)", value=st.session_state.extracted_data["inc2_add"], step=1000000)
-            inc2_sub = st.number_input("세무 차감액 (2년전)", value=st.session_state.extracted_data["inc2_sub"], step=1000000)
-            inc2_net = inc2_corp + inc2_add - inc2_sub
-            st.caption(f"순손익액: {inc2_net:,.0f} 원")
-
-        with col3:
-            st.markdown("**이전 3년**")
-            inc3_corp = st.number_input("소득금액 (3년전)", value=st.session_state.extracted_data["inc3_corp"], step=1000000)
-            inc3_add = st.number_input("세무 가산액 (3년전)", value=st.session_state.extracted_data["inc3_add"], step=1000000)
-            inc3_sub = st.number_input("세무 차감액 (3년전)", value=st.session_state.extracted_data["inc3_sub"], step=1000000)
-            inc3_net = inc3_corp + inc3_add - inc3_sub
-            st.caption(f"순손익액: {inc3_net:,.0f} 원")
-
-# --- 계산 로직 ---
-discount_rate = 0.10
-
-net_asset = total_assets - total_liabilities
-per_share_net_asset = net_asset / total_shares if total_shares > 0 else 0
-
-weighted_net_income = (inc1_net * 3 + inc2_net * 2 + inc3_net * 1) / 6
-per_share_net_income = weighted_net_income / total_shares if total_shares > 0 else 0
-per_share_net_income_value = per_share_net_income / discount_rate if per_share_net_income > 0 else 0
-
-if "예 (Y)" in real_estate_flag:
-    weighted_value = (per_share_net_income_value * 2 + per_share_net_asset * 3) / 5
-else:
-    weighted_value = (per_share_net_income_value * 3 + per_share_net_asset * 2) / 5
-
-if asset_only_flag:
-    weighted_value = per_share_net_asset
-
-limit_value = per_share_net_asset * 0.8
-final_value = max(weighted_value, limit_value)
-is_limit_applied = final_value == limit_value and not asset_only_flag
-
-# --- 결과 출력 ---
-with col_result:
-    st.header("📄 2. 자동 산출 평가 결과")
+    st.subheader("최근 3년간 순손익액")
+    cols = st.columns(3)
+    inc_corp = [0]*3; inc_add = [0]*3; inc_sub = [0]*3; inc_net = [0]*3
+    weights = [3, 2, 1]
     
-    st.subheader("1주당 가치 요약")
-    mcol1, mcol2, mcol3 = st.columns(3)
-    mcol1.metric("1주당 순손익가치", f"{per_share_net_income_value:,.0f} 원")
-    mcol2.metric("1주당 순자산가치", f"{per_share_net_asset:,.0f} 원")
-    mcol3.metric("최종 1주당 평가액", f"{final_value:,.0f} 원", delta="순자산가치만 적용" if asset_only_flag else ("하한선(80%) 적용" if is_limit_applied else "정상 가중평균"))
+    for i in range(3):
+        with cols[i]:
+            st.markdown(f"**직전 {i+1}년**")
+            inc_corp[i] = st.number_input(f"당기순이익 ({i+1}년전)", value=ed[f"inc{i+1}_corp"])
+            inc_add[i] = st.number_input(f"가산액 ({i+1}년전)", value=ed[f"inc{i+1}_add"])
+            inc_sub[i] = st.number_input(f"차감액 ({i+1}년전)", value=ed[f"inc{i+1}_sub"])
+            inc_net[i] = inc_corp[i] + inc_add[i] - inc_sub[i]
+            st.write(f"👉 **순손익액: {inc_net[i]:,.0f} 원**")
 
+    # 가치 계산 로직
+    # 1. 1주당 순손익가치
+    weighted_income = (inc_net[0]*3 + inc_net[1]*2 + inc_net[2]*1) / 6
+    if weighted_income < 0: weighted_income = 0
+    per_share_income_val = (weighted_income / total_shares) / 0.1  # 10% 이자율 가정
+    
+    # 2. 1주당 순자산가치
+    goodwill = st.session_state.goodwill_value
+    net_asset = (total_assets - total_liab) + goodwill
+    per_share_asset_val = net_asset / total_shares if total_shares > 0 else 0
+    
+    # 3. 비중 평가 및 가중평균 비율 결정
+    real_estate_ratio = real_estate / total_assets if total_assets > 0 else 0
+    stock_ratio = stock_asset / total_assets if total_assets > 0 else 0
+    
+    ratio_text = "일반 법인 (손익 3 : 자산 2)"
+    weight_income = 0.6
+    weight_asset = 0.4
+    
+    if real_estate_ratio >= 0.5:
+        ratio_text = "부동산 과다 법인 (손익 2 : 자산 3)"
+        weight_income = 0.4
+        weight_asset = 0.6
+        
+    weighted_avg_val = (per_share_income_val * weight_income) + (per_share_asset_val * weight_asset)
+    
+    # 2026년 개정 세법 하한선 결정 로직
+    if real_estate_ratio >= 0.8 or stock_ratio >= 0.8:
+        floor_limit = per_share_asset_val * 1.0  # 100% 하한선 적용
+        floor_reason = "순자산가치 100% 하한 적용 (부동산 또는 주식 80% 이상)"
+    else:
+        floor_limit = per_share_asset_val * 0.8  # 80% 하한선 적용
+        floor_reason = "순자산가치 80% 하한 적용 (일반)"
+        
+    final_val = max(weighted_avg_val, floor_limit)
+    
     st.divider()
+    st.subheader("📊 1주당 평가 결과")
+    st.write(f"- 1주당 순손익가치: **{per_share_income_val:,.0f} 원**")
+    st.write(f"- 1주당 순자산가치: **{per_share_asset_val:,.0f} 원** (영업권 {goodwill:,.0f} 원 반영)")
+    st.write(f"- 적용비율: **{ratio_text}**")
+    st.write(f"- 가중평균액: **{weighted_avg_val:,.0f} 원**")
+    st.write(f"- 하한선 방어: **{floor_limit:,.0f} 원** ({floor_reason})")
     
-    st.markdown("### 🔍 단계별 산출 내역")
-    st.markdown(f"""
-    **[STEP 1] 순손익가치 산출**
-    * 이전 1년 순손익: {inc1_net:,.0f}원 (가중치 3)
-    * 이전 2년 순손익: {inc2_net:,.0f}원 (가중치 2)
-    * 이전 3년 순손익: {inc3_net:,.0f}원 (가중치 1)
-    * 3년간 가중평균 순손익액 = **{weighted_net_income:,.0f} 원**
-    * 1주당 가중평균 순손익액 = **{per_share_net_income:,.0f} 원**
-    * **1주당 순손익가치** = {per_share_net_income:,.0f}원 ÷ 10% = **{per_share_net_income_value:,.0f} 원**
+    st.success(f"### 🏆 최종 1주당 평가액 : {final_val:,.0f} 원")
 
-    **[STEP 2] 순자산가치 산출**
-    * 순자산액(자산-부채) = {total_assets:,.0f} - {total_liabilities:,.0f} = **{net_asset:,.0f} 원**
-    * **1주당 순자산가치** = {net_asset:,.0f}원 ÷ {total_shares:,.0f}주 = **{per_share_net_asset:,.0f} 원**
+with tab2:
+    st.header("영업권(Goodwill) 평가 (2026.08 기준)")
+    st.markdown("최근 3년간 가중평균 순손익액의 50%가 순자산가액의 10%를 초과하는 경우, 초과액을 5년간 현가 할인하여 영업권을 산출합니다.")
+    
+    st.write(f"- 3년 가중평균 순손익액: **{weighted_income:,.0f} 원**")
+    st.write(f"- 영업권 차감 전 순자산가액: **{total_assets - total_liab:,.0f} 원**")
+    
+    goodwill_base = (weighted_income * 0.5) - ((total_assets - total_liab) * 0.1)
+    if goodwill_base > 0:
+        # 현가계수 (10% 5년 = 약 3.79079)
+        pv_factor = 3.79079
+        calculated_goodwill = goodwill_base * pv_factor
+    else:
+        calculated_goodwill = 0
+        
+    st.write(f"- 영업권 평가 대상액 (초과수익): **{max(0, goodwill_base):,.0f} 원**")
+    st.metric(label="산출된 영업권 가액", value=f"{calculated_goodwill:,.0f} 원")
+    
+    if st.button("순자산가치에 영업권 반영하기"):
+        st.session_state.goodwill_value = calculated_goodwill
+        st.rerun()
 
-    **[STEP 3] 최종 1주당 평가가액 산출**
-    * 순자산가치로만 평가 여부: **{'예' if asset_only_flag else '아니오'}**
-    * 가중평균액 산정: **{weighted_value:,.0f} 원**
-    * 하한선 (순자산가치의 80%): **{limit_value:,.0f} 원**
-    * **최종 1주당 평가가액 = {final_value:,.0f} 원**
-    """)
+with tab3:
+    st.header("FCF / EVA 기업가치평가")
+    st.write("잉여현금흐름(FCF) 기반의 본질적 가치(Intrinsic Value)를 산출합니다.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        op_profit = st.number_input("영업이익", value=ed["op_profit"])
+        tax_rate = st.number_input("법인세율 (%)", value=19.0, step=1.0) / 100
+        depreciation = st.number_input("감가상각비", value=ed["depreciation"])
+    with col2:
+        capex = st.number_input("CAPEX (자본적지출)", value=ed["capex"])
+        nwc_change = st.number_input("순운전자본 증감", value=ed["nwc_change"])
+        wacc = st.number_input("WACC (가중평균자본비용, %)", value=10.0) / 100
+        g = st.number_input("영구성장률 (%)", value=2.0) / 100
+        
+    nopat = op_profit * (1 - tax_rate)
+    fcf = nopat + depreciation - capex - nwc_change
+    
+    st.write(f"- **세후영업이익(NOPAT):** {nopat:,.0f} 원")
+    st.write(f"- **잉여현금흐름(FCF):** {fcf:,.0f} 원")
+    
+    if wacc > g:
+        terminal_value = fcf * (1 + g) / (wacc - g)
+        st.success(f"### 📈 계속기업가치 (Terminal Value): {terminal_value:,.0f} 원")
+    else:
+        st.error("WACC는 영구성장률(g)보다 커야 가치를 산출할 수 있습니다.")
+
+with tab4:
+    st.header("과점주주 간주취득세 산출 (2026.08 기준)")
+    st.write("비상장법인의 주식을 취득하여 특수관계인 합산 지분율이 50%를 초과(과점주주)하게 된 경우 취득세를 납부해야 합니다.")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        total_s = st.number_input("발행주식총수 (회사전체)", value=total_shares, key="t4_ts")
+        book_value = st.number_input("법인의 취득세 과세대상 장부가액 합계", value=500000000, step=10000000)
+    with c2:
+        before_shares = st.number_input("취득 전 특수관계인 합산 주식수", value=20000)
+        after_shares = st.number_input("취득 후 특수관계인 합산 주식수", value=21000)
+        
+    before_ratio = before_shares / total_s if total_s > 0 else 0
+    after_ratio = after_shares / total_s if total_s > 0 else 0
+    
+    st.write(f"취득 전 지분율: {before_ratio*100:.2f}% ➡️ 취득 후 지분율: **{after_ratio*100:.2f}%**")
+    
+    if after_ratio > 0.5:
+        st.warning("⚠️ 과점주주 요건(50% 초과)을 충족하여 간주취득세 납부 대상입니다.")
+        increase_ratio = after_ratio - before_ratio if before_ratio >= 0.5 else after_ratio
+        if before_ratio < 0.5:
+            st.info("최초 과점주주 성립: 전체 지분율에 대해 과세")
+        else:
+            st.info("기존 과점주주의 지분 증가: 증가분에 대해서만 과세")
+            
+        tax_base = book_value * increase_ratio
+        acq_tax = tax_base * 0.02
+        rural_tax = acq_tax * 0.1
+        
+        st.write(f"- 과세표준: {tax_base:,.0f} 원")
+        st.error(f"**총 납부세액: {acq_tax + rural_tax:,.0f} 원** (취득세 {acq_tax:,.0f}원 + 농특세 {rural_tax:,.0f}원)")
+    else:
+        st.success("지분율 50% 이하로 과점주주 취득세 납부 대상이 아닙니다.")
+
+with tab5:
+    st.header("주식 및 주주이동 명세서 (2026.08 서식)")
+    
+    default_df = pd.DataFrame([
+        {"주주명": "홍길동", "관계": "본인", "기초주식수": 10000, "당기취득": 2000, "당기양도": 0, "기말주식수": 12000},
+        {"주주명": "김철수", "관계": "타인", "기초주식수": 5000, "당기취득": 0, "당기양도": 2000, "기말주식수": 3000},
+    ])
+    
+    st.write("아래 표를 직접 클릭하여 주주 이동 내역을 수정하고 추가할 수 있습니다.")
+    edited_df = st.data_editor(default_df, num_rows="dynamic", use_container_width=True)
+    
+    current_total = edited_df["기말주식수"].sum()
+    if current_total == total_shares:
+        st.success(f"기말주식수 합계({current_total})가 발행주식총수({total_shares})와 일치합니다.")
+    else:
+        st.error(f"오류: 기말주식수 합계({current_total})가 발행주식총수({total_shares})와 일치하지 않습니다.")
